@@ -1,40 +1,67 @@
-import { Chart, Colors, Interaction, Legend, Title, Tooltip } from "chart.js";
-import { Line } from "solid-chartjs";
-import { onMount } from "solid-js";
+// TemperatureChart.jsx
+import axios from "axios";
+import Chart from "chart.js/auto";
+import { createSignal, onCleanup, onMount } from "solid-js";
 
-const TemperatureChart = ({ data, labels }) => {
+function TemperatureChart() {
+  let chartRef;
+  let chart;
+  const [temp, setTemp] = createSignal([]);
+  const [label, setLabel] = createSignal([]);
+
   onMount(() => {
-    Chart.register(Title, Tooltip, Legend, Colors);
+    chart = new Chart(chartRef, {
+      type: "line",
+      data: {
+        labels: label(),
+        datasets: [
+          {
+            label: "Temperature",
+            data: temp(),
+            borderColor: "#243642",
+            tension: 0.1,
+          },
+        ],
+      },
+      options: {
+        animation: false,
+        scales: {
+          y: {
+            beginAtZero: true,
+          },
+        },
+      },
+    });
+
+    const intervalId = setInterval(() => {
+      axios
+        .get("/api/v1/temp/raw")
+        .then((response) => {
+          setTemp((prev) => [...prev, response.data.raw]);
+          setLabel((prev) => [...prev, String(temp().length - 1)]);
+
+          chart.data.labels = label();
+          chart.data.datasets[0].data = temp();
+          chart.update();
+        })
+        .catch((error) => {
+          console.error("Error fetching data:", error);
+        });
+    }, 5000);
+
+    onCleanup(() => {
+      clearInterval(intervalId);
+      chart.destroy();
+    });
   });
 
-  const chartData = {
-    labels: labels,
-    datasets: [
-      {
-        label: "Temperature",
-        data: data,
-        borderColor: "#243642",
-      },
-    ],
-  };
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    Interaction: true,
-  };
-
   return (
-    <div className="bg-chartBg rounded-xl m-10">
+    <div className="bg-chartBg rounded-xl m-5">
       <div class="m-3">
-        <Line
-          data={chartData}
-          options={chartOptions}
-          width={500}
-          height={600}
-        />
+        <canvas ref={chartRef}></canvas>
       </div>
     </div>
   );
-};
+}
 
 export default TemperatureChart;

@@ -1,11 +1,3 @@
-/* HTTP Restful API Server
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
 #include <string.h>
 #include <fcntl.h>
 #include "esp_http_server.h"
@@ -14,9 +6,11 @@
 #include "esp_vfs.h"
 #include "cJSON.h"
 #include "driver/gpio.h"
+#include "esp_random.h"
+#include "esp_chip_info.h"
+#include "led_strip.h"
 
-/* LED Pin */
-#define led 2
+extern led_strip_handle_t led_strip;
 
 static const char *REST_TAG = "esp-rest";
 #define REST_CHECK(a, str, goto_tag, ...)                                              \
@@ -157,14 +151,14 @@ static esp_err_t light_brightness_post_handler(httpd_req_t *req)
     buf[total_len] = '\0';
 
     cJSON *root = cJSON_Parse(buf);
-    /* LED Status */
-    int ledState = cJSON_GetObjectItem(root, "ledState")->valueint;
-    ESP_LOGI(REST_TAG, "LED State = %d", ledState);
-    gpio_set_direction(led, GPIO_MODE_OUTPUT);
-    gpio_set_level(led, ledState);
-
+    int red = cJSON_GetObjectItem(root, "red")->valueint;
+    int green = cJSON_GetObjectItem(root, "green")->valueint;
+    int blue = cJSON_GetObjectItem(root, "blue")->valueint;
+    ESP_LOGI(REST_TAG, "Light control: red = %d, green = %d, blue = %d", red, green, blue);
     cJSON_Delete(root);
     httpd_resp_sendstr(req, "Post control value successfully");
+    ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, 0, red, green, blue));
+    ESP_ERROR_CHECK(led_strip_refresh(led_strip));
     return ESP_OK;
 }
 
@@ -175,8 +169,10 @@ static esp_err_t system_info_get_handler(httpd_req_t *req)
     cJSON *root = cJSON_CreateObject();
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
-    cJSON_AddStringToObject(root, "version", "Bright");
+    cJSON_AddNumberToObject(root, "model", chip_info.model);
+    cJSON_AddStringToObject(root, "version", IDF_VER);
     cJSON_AddNumberToObject(root, "cores", chip_info.cores);
+
     const char *sys_info = cJSON_Print(root);
     httpd_resp_sendstr(req, sys_info);
     free((void *)sys_info);

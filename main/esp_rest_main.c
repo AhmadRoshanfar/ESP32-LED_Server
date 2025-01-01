@@ -1,11 +1,3 @@
-/* HTTP Restful API Server Example
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
 #include "sdkconfig.h"
 #include "driver/gpio.h"
 #include "esp_vfs_semihost.h"
@@ -19,13 +11,16 @@
 #include "mdns.h"
 #include "lwip/apps/netbiosns.h"
 #include "protocol_examples_common.h"
-#if CONFIG_EXAMPLE_WEB_DEPLOY_SD
-#include "driver/sdmmc_host.h"
-#endif
+#include "led_strip.h"
 
 #define MDNS_INSTANCE "esp home web server"
 
-static const char *TAG = "example";
+#define LED_STRIP_GPIO_PIN 38
+#define LED_STRIP_LED_COUNT 1
+#define LED_STRIP_RMT_RES_HZ (10 * 1000 * 1000)
+
+static const char *TAG = "Main";
+led_strip_handle_t led_strip;
 
 esp_err_t start_rest_server(const char *base_path);
 
@@ -37,76 +32,33 @@ static void initialise_mdns(void)
 
     mdns_txt_item_t serviceTxtData[] = {
         {"board", "esp32"},
-        {"path", "/"}
-    };
+        {"path", "/"}};
 
     ESP_ERROR_CHECK(mdns_service_add("ESP32-WebServer", "_http", "_tcp", 80, serviceTxtData,
                                      sizeof(serviceTxtData) / sizeof(serviceTxtData[0])));
 }
 
-#if CONFIG_EXAMPLE_WEB_DEPLOY_SEMIHOST
-esp_err_t init_fs(void)
-{
-    esp_err_t ret = esp_vfs_semihost_register(CONFIG_EXAMPLE_WEB_MOUNT_POINT);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to register semihost driver (%s)!", esp_err_to_name(ret));
-        return ESP_FAIL;
-    }
-    return ESP_OK;
-}
-#endif
-
-#if CONFIG_EXAMPLE_WEB_DEPLOY_SD
-esp_err_t init_fs(void)
-{
-    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
-
-    gpio_set_pull_mode(15, GPIO_PULLUP_ONLY); // CMD
-    gpio_set_pull_mode(2, GPIO_PULLUP_ONLY);  // D0
-    gpio_set_pull_mode(4, GPIO_PULLUP_ONLY);  // D1
-    gpio_set_pull_mode(12, GPIO_PULLUP_ONLY); // D2
-    gpio_set_pull_mode(13, GPIO_PULLUP_ONLY); // D3
-
-    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-        .format_if_mount_failed = true,
-        .max_files = 4,
-        .allocation_unit_size = 16 * 1024
-    };
-
-    sdmmc_card_t *card;
-    esp_err_t ret = esp_vfs_fat_sdmmc_mount(CONFIG_EXAMPLE_WEB_MOUNT_POINT, &host, &slot_config, &mount_config, &card);
-    if (ret != ESP_OK) {
-        if (ret == ESP_FAIL) {
-            ESP_LOGE(TAG, "Failed to mount filesystem.");
-        } else {
-            ESP_LOGE(TAG, "Failed to initialize the card (%s)", esp_err_to_name(ret));
-        }
-        return ESP_FAIL;
-    }
-    /* print card info if mount successfully */
-    sdmmc_card_print_info(stdout, card);
-    return ESP_OK;
-}
-#endif
-
-#if CONFIG_EXAMPLE_WEB_DEPLOY_SF
 esp_err_t init_fs(void)
 {
     esp_vfs_spiffs_conf_t conf = {
         .base_path = CONFIG_EXAMPLE_WEB_MOUNT_POINT,
         .partition_label = NULL,
         .max_files = 5,
-        .format_if_mount_failed = false
-    };
+        .format_if_mount_failed = false};
     esp_err_t ret = esp_vfs_spiffs_register(&conf);
 
-    if (ret != ESP_OK) {
-        if (ret == ESP_FAIL) {
+    if (ret != ESP_OK)
+    {
+        if (ret == ESP_FAIL)
+        {
             ESP_LOGE(TAG, "Failed to mount or format filesystem");
-        } else if (ret == ESP_ERR_NOT_FOUND) {
+        }
+        else if (ret == ESP_ERR_NOT_FOUND)
+        {
             ESP_LOGE(TAG, "Failed to find SPIFFS partition");
-        } else {
+        }
+        else
+        {
             ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
         }
         return ESP_FAIL;
@@ -114,17 +66,52 @@ esp_err_t init_fs(void)
 
     size_t total = 0, used = 0;
     ret = esp_spiffs_info(NULL, &total, &used);
-    if (ret != ESP_OK) {
+    if (ret != ESP_OK)
+    {
         ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
-    } else {
+    }
+    else
+    {
         ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
     }
     return ESP_OK;
 }
-#endif
+
+led_strip_handle_t configure_led(void)
+{
+    // LED strip general initialization, according to your led board design
+    led_strip_config_t strip_config = {
+        .strip_gpio_num = LED_STRIP_GPIO_PIN,                        // The GPIO that connected to the LED strip's data line
+        .max_leds = LED_STRIP_LED_COUNT,                             // The number of LEDs in the strip,
+        .led_model = LED_MODEL_WS2812,                               // LED strip model
+        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB, // The color order of the strip: GRB
+        .flags = {
+            .invert_out = false, // don't invert the output signal
+        }};
+
+    // LED strip backend configuration: RMT
+    led_strip_rmt_config_t rmt_config = {
+        .clk_src = RMT_CLK_SRC_DEFAULT,        // different clock source can lead to different power consumption
+        .resolution_hz = LED_STRIP_RMT_RES_HZ, // RMT counter clock frequency
+        .mem_block_symbols = 64,               // the memory size of each RMT channel, in words (4 bytes)
+        .flags = {
+            .with_dma = false, // DMA feature is available on chips like ESP32-S3/P4
+        }};
+
+    // LED Strip object handle
+    led_strip_handle_t led_strip;
+    ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
+    ESP_LOGI(TAG, "Created LED strip object with RMT backend");
+    return led_strip;
+}
 
 void app_main(void)
 {
+    led_strip = configure_led();
+
+    ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, 0, 230, 0, 85));
+    ESP_ERROR_CHECK(led_strip_refresh(led_strip));
+
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());

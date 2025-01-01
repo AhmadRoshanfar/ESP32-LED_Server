@@ -1,3 +1,14 @@
 {
-    "idf.adapterTargetName": "esp32"
+  "idf.adapterTargetName": "esp32",
+  "idf.openOcdConfigs": ["board/esp32s3-bridge.cfg"],
+  "files.associations": {
+    "*.ejs": "html",
+    "*.md": "markdown",
+    "*.js": "javascriptreact",
+    "protocol_examples_common.h": "c",
+    "esp_log.h": "c",
+    "sstream": "c",
+    "regex": "c",
+    "esp_netif.h": "c"
+  }
 }

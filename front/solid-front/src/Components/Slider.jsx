@@ -17,7 +17,7 @@ function Slider({ name, color, colorValue, setColorValue }) {
         type="range"
         min="0"
         max="255"
-        value={colorValue}
+        value={colorValue ? 120 : 10}
         onInput={handleSliderChange}
         className={`w-64 h-2 focus:outline-none focus:ring-1 ${colorClass}`}
       />
